@@ -1,0 +1,40 @@
+// Type signatures are not easy and im still not sure what symbol to use for it.
+// for starters we have the typescript type declarations.
+const points: u32 = 0;
+// These seem to be the most common. most modern languages use the `:` to denote type
+// and i do like that.
+// some other options
+const points . u32 = 0;
+const points $ u32 = 0;
+// these 2 might just not work due to parsing where you have
+// a type which could be thought of to be the name which is what the
+// () is there for.
+const u32 points = 0;
+const (u32) points = 0;
+
+// 2 FUNCTIONS
+// functions are where it gets interesting. Lots of different languages
+// use different things for type signatures.
+// Obviously you have the C way which is pretty nice
+int main(int argc, char *argv[])
+
+// haskell / elm like languages
+ty main int -> char*[] -> int
+fn main (argc, argv) int
+
+// zig looks pretty nice
+fn main(argc: u32, argv: *const [_:0]u8) void 
+
+// typescript is very similar
+fn main(argc: u32, argv: string): void
+
+// rust replaces it with an arrow which is interesting
+fn main(argc: u32, argv: String) -> void
+
+// Personally if i don't want to try anything crazy its either going
+// to be typescript or zig leaning towards zig.
+
+
+// 3 DEFINING NEW TYPES 
+// uhhhh enums are probably a good idea
+// todo cause this is kidna aifjewajflksaoq<F3>rjfo9u!!!!

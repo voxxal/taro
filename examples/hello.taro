@@ -1,0 +1,3 @@
+io.out.write("What is your name?\n")
+const name = io.in.readln()
+io.out.writeln("Hello " + name)

@@ -1,0 +1,29 @@
+// Option 1 - function like, i don't exactly like import_extern kinda ugly
+const fibb = import("fibb.taro")
+const fibb = import_extern("fibb.wasm", ("fibb", fn(u32) -> u32))
+
+// option 2 - rust/js like imports
+import { fibb::fibb }
+import { (extern "fibb.wasm")fibb::(fn(u32) -> u32)fibb }
+
+// option 3 - python/elm like
+import fibb
+from fibb import fibb
+import fibb exposing fibb
+
+extern import fibb // this might not be possible due to types
+extern from fibb import (fn(u32) -> u32)fibb
+extern import fibb exposing (fn(u32) -> u32)fibb
+
+
+// option 4 - split imports and externs
+// i like this probably the best, and its probably
+// going to be either function syntax or python like
+extern "fibb.wasm" fibb {
+  fn fibb(u32) u32;
+  const MAX_FIBB_SIZE: i32;
+}
+
+// which is better?
+extern "fibb.wasm" fibb
+extern fibb "fibb.wasm"

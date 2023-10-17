@@ -1,0 +1,11 @@
+for i in range(100) {
+    if i % 3 == 0 {
+        io.out.writeln("Fizz")
+    } else if i % 5 == 0 {
+        io.out.writeln("Buzz")
+    } else if i % 15 == 0 {
+        io.out.writeln("FizzBuzz")
+    } else {
+        io.out.writeln(as(i, string))
+    }
+}
