@@ -14,6 +14,7 @@ const KEYWORDS = {
   break: "BREAK",
   return: "RETURN",
   unreachable: "UNREACHABLE",
+  extern: "EXTERN",
 };
 
 export class Lexer {
@@ -44,6 +45,7 @@ export class Lexer {
       case "}": this.pushToken("CLOSE_BRACE"); break;
       case ".": this.pushToken("DOT"); break;
       case ",": this.pushToken("COMMA"); break;
+      case "#": this.pushToken("POUND"); break;
 
       case "+": this.pushToken(this.match("=") ? "PLUS_ASSIGN" : "PLUS"); break;
       case "-": this.pushToken(this.match("=") ? "MINUS_ASSIGN" : "MINUS"); break;
@@ -94,6 +96,7 @@ export class Lexer {
           );
         } else if (this.isLegalIdentChar(c)) {
           while (this.isLegalIdentChar(this.peek())) this.advance();
+          if (this.source.charAt(this.current - 1) == ":") this.current -= 1;
           const name = this.source.substring(this.start, this.current);
           const type = KEYWORDS[name] || "IDENT";
           this.pushToken(type);
@@ -134,7 +137,7 @@ export class Lexer {
     return (c >= "a" && c <= "z") 
       || (c >= "A" && c <= "Z") 
       || (c >= "0" && c <= "9") 
-      || c == "_";
+      || c == "_" || c == ":";
   }
 
   match(expected) {
