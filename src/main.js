@@ -15,7 +15,7 @@ import { Emitter } from "./emit.js"
 const source = `
 extern wasi_unstable {
   fn fd_write(i32, string, i32, i32) i32;
-  const world: i32;
+  fn fd_read(i32, i32, i32, i32) i32;
 }
 
 fn File:write(fd: i32, str: string) void {

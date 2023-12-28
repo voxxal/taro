@@ -134,7 +134,7 @@ export class Emitter {
     return node.valType;
   }
 
-  traverse(node, ...options) {
+  traverse(node, parent, ...options) {
     this.resolveType(node);
     switch (node.type) {
       case "PROGRAM":
@@ -144,7 +144,7 @@ export class Emitter {
         break;
       case "EXTERN":
         for (const impor of node.imports) {
-          this.traverse(impor, node.moduleName);
+          this.traverse(impor, null, node.moduleName);
         }
         break;
       case "EXTERN_FUNCTION":
@@ -159,6 +159,12 @@ export class Emitter {
         );
         break;
       case "EXTERN_VAR":
+        this.module.addGlobalImport(
+          `${options[0]}:${node.name}`,
+          options[0],
+          node.name,
+          this.binaryenType(node.valType)
+        );
         break;
       case "BLOCK":
         const children = [];
@@ -172,7 +178,7 @@ export class Emitter {
             this.fnArgs = undefined;
           }
           for (const statement of node.value) {
-            children.push(this.traverse(statement));
+            children.push(this.traverse(statement, node));
           }
         } finally {
           this.blockEnv = this.env;
@@ -254,23 +260,17 @@ export class Emitter {
         for (const arg of node.args) {
           traversedArgs.push(this.traverse(arg));
         }
-        
-        // TODO drop keyword
-        if (node.func.name === "wasi_unstable:fd_write") {
-          return this.module.drop(
-            this.module.call(
-              node.func.name,
-              traversedArgs,
-              this.binaryenType(node.valType)
-            )
-          );
-        }
-
-        return this.module.call(
+        let call = this.module.call(
           node.func.name,
           traversedArgs,
           this.binaryenType(node.valType)
         );
+
+        if (parent?.type === "BLOCK" && node.valType !== "void") {
+          call = this.module.drop(call);
+        }
+
+        return call
       case "RETURN":
         return this.module.return(this.traverse(node.value));
       default:
