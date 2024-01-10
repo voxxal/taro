@@ -41,11 +41,11 @@ export class Env {
     }
   }
 
-  assign(name, type, mut) {
+  assign(name, type, mut, localI) {
     if (this.values[name]) {
       throw "Shadowing is not implemented yet";
     } else {
-      this.values[name] = { name, type, mut };
+      this.values[name] = { name, type, mut, localI };
     }
   }
 
@@ -55,12 +55,13 @@ export class Env {
   }
 
   reassign(name, type) {
-    if (this.values[name]) {
-      if (!this.values[name].mut) throw "Cannot reassign to const";
-      if (typeFits(this.values[name].type, type))
+    const prev = this.values[name];
+    if (prev) {
+      if (!prev.mut) throw "Cannot reassign to const";
+      if (!typeFits(prev.type, type))
         throw `Type ${type} does not fit into ${this.values[name].type}`;
     } else if (this.parent) {
-      this.parent.reassign(name, value);
+      this.parent.reassign(name, type);
     } else {
       throw new Error("Unknown variable " + name);
     }
@@ -169,13 +170,40 @@ export class Typechecker {
       throw `mismatched types on bin_op ${op}. left: ${JSON.stringify(
         left.valType
       )}, right: ${JSON.stringify(right.valType)}`;
-    return {
-      type: "BIN_OP",
-      left,
-      right,
-      op,
-      valType: left.valType,
-    };
+    switch (op) {
+      // bool -> bool -> bool
+      case "BOOL_AND":
+      case "BOOL_OR":
+        if (left.valType !== "bool" || right.valType !== "bool")
+          throw "expected left and right of boolean operation to be bool";
+      // x -> x -> bool
+      case "EQUALITY":
+      case "INEQUALITY":
+      case "LT":
+      case "GT":
+      case "LTE":
+      case "GTE":
+        return {
+          type: "BIN_OP",
+          left,
+          right,
+          op,
+          valType: "bool",
+        };
+      // x -> x -> x
+      case "PLUS":
+      case "MINUS":
+      case "STAR":
+      case "SLASH":
+      case "MODULO":
+        return {
+          type: "BIN_OP",
+          left,
+          right,
+          op,
+          valType: left.valType,
+        };
+    }
   }
 
   checkStructLiteral(node) {
@@ -213,6 +241,7 @@ export class Typechecker {
         this.env.assign(`${options[0]}:${node.name}`, node.valType, false);
         return node;
       case "FUNCTION": {
+        this.scopeI = 0;
         this.functionLocals = [];
         this.functionArgs = [];
         this.argsLength = node.args.length;
@@ -259,7 +288,12 @@ export class Typechecker {
           type: "RETURN",
           value: this.traverse(node.value),
         };
+      // TODO for each block compile a list
+      // env is perfect for this figure out how to use that in order to get this to work.
+      // of all locals needed so we can reuse certain
+      // locals for each scope
       case "BLOCK":
+        this.scopeI += 1;
         const value = [];
         let valType = "void";
         try {
@@ -294,13 +328,27 @@ export class Typechecker {
         }
 
         const localI = this.functionLocals.length + this.argsLength;
-        this.env.assign(node.name, valType, node.mut);
-        this.functionLocals.push({ name: node.name, valType });
+        this.env.assign(node.name, valType, node.mut, localI);
+        this.functionLocals.push({
+          name: node.name,
+          valType,
+          scopeI: this.scopeI,
+        });
         return {
           ...node,
           value,
           valType,
           localI,
+        };
+      }
+      case "REASSIGN": {
+        const value = this.traverse(node.value);
+        const prev = this.env.get(node.name);
+        this.env.reassign(node.name, value.valType);
+        return {
+          ...node,
+          value,
+          localI: prev.localI,
         };
       }
       case "STRUCT":
@@ -311,7 +359,13 @@ export class Typechecker {
       case "VAR":
         const localI = this.functionArgs
           .concat(this.functionLocals)
-          .findIndex((local) => local.name === node.value.source);
+          .findIndex(
+            (local) =>
+              local.name === node.value.source &&
+              (local.scopeI && local.scopeI != 1
+                ? this.scopeI == local.scopeI
+                : true)
+          );
 
         return {
           type: "VAR",
@@ -367,31 +421,27 @@ export class Typechecker {
         };
       case "IF":
         const thenBlock = this.traverse(node.thenBlock);
-        const elseBlock = this.traverse(node.elseBlock);
-        // TODO resolve type issue:
-        // while the block valType is updated,
-        // the return node of the block is not updated
-        // which causes a discrepency between the
-        // return type and the block return type
-        //
-        // this is somewhat resolved now by not never actually
-        // overriding the type anymore, but a second pass
-        // is likely needed to resolve the types
-        // or this can be done with proxies.
-        if (this.isNonConcreteType(elseBlock)) {
-          this.coerceNonConcreteType(elseBlock, thenBlock);
-        } else if (this.isNonConcreteType(thenBlock)) {
-          this.coerceNonConcreteType(thenBlock, elseBlock);
+        const elseBlock = node.elseBlock ? this.traverse(node.elseBlock) : null;
+        if (elseBlock) {
+          if (this.isNonConcreteType(elseBlock)) {
+            this.coerceNonConcreteType(elseBlock, thenBlock);
+          } else if (this.isNonConcreteType(thenBlock)) {
+            this.coerceNonConcreteType(thenBlock, elseBlock);
+          }
+          if (this.resolveType(thenBlock) !== this.resolveType(elseBlock)) {
+            throw `mismatched types in if statement. then: ${JSON.stringify(
+              thenBlock.valType
+            )}, else: ${JSON.stringify(elseBlock.valType)}`;
+          }
         }
-        if (this.resolveType(thenBlock) !== this.resolveType(elseBlock)) {
-          throw `mismatched types in if statement. then: ${JSON.stringify(
-            thenBlock.valType
-          )}, else: ${JSON.stringify(elseBlock.valType)}`;
-        }
+
+        const condition = this.traverse(node.condition);
+        if (condition.valType !== "bool")
+          throw new Error("Condition is not boolean");
 
         return {
           type: "IF",
-          condition: this.traverse(node.condition),
+          condition,
           thenBlock,
           elseBlock,
           valType: thenBlock.valType,
@@ -422,6 +472,17 @@ export class Typechecker {
         const left = this.traverse(node.left);
         const right = this.traverse(node.right);
         return this.typeBinOp(node.op.type, left, right);
+      case "WHILE": {
+        const condition = this.traverse(node.condition);
+        if (condition.valType !== "bool")
+          throw new Error("Condition is not boolean");
+        const block = this.traverse(node.block);
+        return {
+          type: "WHILE",
+          condition,
+          block,
+        };
+      }
       default:
         throw "Node not implemented";
     }

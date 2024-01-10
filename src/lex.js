@@ -73,17 +73,33 @@ export class Lexer {
         break;
       
       case '"':
+        let string = ""
         while (this.peek() != '"' && !this.isAtEnd()) {
+          if (this.peek() == "\\") {
+            this.advance();
+            switch (this.advance()) {
+              case "n":
+                string += "\n";
+                break;
+              case "t":
+                string += "\t";
+              case "\\":
+                string += "\\"
+              default:
+                throw new TaroError("Invalid escape code", this.line);
+            }
+            continue;
+          }
           if (this.peek() == "\n")
             throw new TaroError("Multiline String literals not allowed", this.line);
-          this.advance();
+          string += this.advance();
         }
 
         if (this.isAtEnd()) throw new TaroError("Unterminated String", this.line);
         this.advance()
         this.pushToken(
           "STRING",
-          this.source.substring(this.start + 1, this.current - 1)
+          string
         );
         break;
 

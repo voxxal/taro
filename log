@@ -1,0 +1,15 @@
+file:///home/voxal/code/taro/node_modules/binaryen/index.js:6
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
+
+ReferenceError: Cannot access 'localI' before initialization
+    at Typechecker.traverse (file:///home/voxal/code/taro/src/typechecker.js:350:11)
+    at Typechecker.traverse (file:///home/voxal/code/taro/src/typechecker.js:450:21)
+    at Typechecker.traverse (file:///home/voxal/code/taro/src/typechecker.js:306:30)
+    at Typechecker.traverse (file:///home/voxal/code/taro/src/typechecker.js:478:28)
+    at Typechecker.traverse (file:///home/voxal/code/taro/src/typechecker.js:306:30)
+    at Typechecker.traverse (file:///home/voxal/code/taro/src/typechecker.js:259:27)
+    at Typechecker.traverse (file:///home/voxal/code/taro/src/typechecker.js:226:31)
+    at Typechecker.check (file:///home/voxal/code/taro/src/typechecker.js:79:17)
+    at file:///home/voxal/code/taro/src/main.js:47:39
+
+Node.js v21.2.0

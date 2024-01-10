@@ -44,12 +44,14 @@ export class Env {
 
 export class Emitter {
   constructor(typedAst) {
+    this.strMap = {};
     this.tree = typedAst;
     this.module = new b.Module();
     // we leave 8 bytes at the start for fd_write to write the number of bytes to there
     this.memP = 8;
     this.memorySegments = [];
     this.blockEnv = null;
+    this.loopLabels = 0;
     this.env = new Env();
   }
 
@@ -62,20 +64,17 @@ export class Emitter {
   }
 
   emit() {
+    // this.module.autoDrop();
     this.module.setMemory(1, 64, "memory");
-    this.env.assignFn(
-      "File_write",
-      [{ argType: "i32" }, { argType: "i32" }],
-      "void"
-    );
 
     this.traverse(this.tree);
     this.module.setMemory(1, -1, null, this.memorySegments);
     // this.module.optimize();
     // console.log(this.module.validate());
 
-    if (!this.module.validate()) console.log("validation error");
-    return this.module.emitText();
+    // if (!this.module.validate()) console.log("validation error");
+    console.log(this.module.emitText());
+    return this.module.emitBinary();
   }
 
   text() {
@@ -100,6 +99,7 @@ export class Emitter {
       f64: b.f64,
       v128: b.v128,
       string: b.i32,
+      bool: b.i32,
     };
 
     if (primatives[name] !== undefined) {
@@ -129,6 +129,8 @@ export class Emitter {
     // fill in the type
     if (node.valType?.id && node.valType?.actual) {
       node.valType = node.valType.actual;
+    } else if (node.valType?.id) {
+      throw "Failed to infer type";
     }
 
     return node.valType;
@@ -144,7 +146,7 @@ export class Emitter {
         break;
       case "EXTERN":
         for (const impor of node.imports) {
-          this.traverse(impor, null, node.moduleName);
+          this.traverse(impor, node, node.moduleName);
         }
         break;
       case "EXTERN_FUNCTION":
@@ -190,6 +192,7 @@ export class Emitter {
           this.binaryenType(node.valType)
         );
       case "ASSIGNMENT":
+      case "REASSIGN":
         return this.module.local.set(node.localI, this.traverse(node.value));
       case "reassign":
         this.env.reassign(node.name, "i32");
@@ -225,6 +228,9 @@ export class Emitter {
         return this.module.unreachable();
       case "LITERAL":
         if (typeof node.value === "string") {
+          // if we already have a cached iov use that instead.
+          if (this.strMap[node.value])
+            return this.module.i32.const(this.strMap[node.value]);
           // iov needs to be aligned to 4 bytes
           this.align(4);
 
@@ -244,6 +250,7 @@ export class Emitter {
             offset: this.module.i32.const(str),
             data: combined,
           });
+          this.strMap[node.value] = str;
 
           return this.module.i32.const(str);
         } else if (typeof node.value === "number") {
@@ -270,11 +277,53 @@ export class Emitter {
           call = this.module.drop(call);
         }
 
-        return call
+        return call;
       case "RETURN":
         return this.module.return(this.traverse(node.value));
+
+      case "BIN_OP":
+        const left = this.traverse(node.left);
+        const right = this.traverse(node.right);
+        switch (node.op) {
+          // TODO do for any type.
+          case "EQUALITY":
+            return this.module.i32.eq(left, right);
+          case "INEQUALITY":
+            return this.module.i32.ne(left, right);
+          case "PLUS":
+            return this.module.i32.add(left, right);
+          case "MINUS":
+            return this.module.i32.add(left, right);
+          case "MODULO":
+            return this.module.i32.rem_s(left, right);
+
+          case "GT":
+            return this.module.i32.gt_s(left, right);
+          case "LT":
+            return this.module.i32.lt_s(left, right);
+
+          case "BOOL_AND":
+            return this.module.i32.and(left, right);
+          default:
+            throw new Error("Unimplemented Bin Op");
+        }
+      case "IF":
+        const cond = this.traverse(node.condition);
+        const thenBlock = this.traverse(node.thenBlock);
+        const elseBlock = node.elseBlock ? this.traverse(node.elseBlock) : undefined;
+        return this.module.if(cond, thenBlock, elseBlock);
+
+      case "WHILE":
+        const label = `while_${this.loopLabels++}`;
+        return this.module.loop(
+          label,
+          this.module.block(null, [
+            this.traverse(node.block),
+            this.module.br_if(label, this.traverse(node.condition)),
+          ])
+        );
       default:
-        console.log("Node " + node.type + " not implemented yet");
+        console.log("Emitting node " + node.type + " not implemented yet");
         return this.module.nop;
     }
   }
