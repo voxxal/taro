@@ -43,7 +43,7 @@ export class Env {
 }
 
 export class Emitter {
-  constructor(typedAst) {
+  constructor(typedAst, types) {
     this.strMap = {};
     this.tree = typedAst;
     this.module = new b.Module();
@@ -53,6 +53,7 @@ export class Emitter {
     this.blockEnv = null;
     this.loopLabels = 0;
     this.env = new Env();
+    this.types = types;
   }
 
   align(size) {
@@ -90,8 +91,27 @@ export class Emitter {
     ]);
   }
 
-  binaryenType(name) {
-    const primatives = {
+  // type to index
+  tti(type) {
+    for (const i in this.types) {
+      const target = this.types[i];
+      if (deepEqual(type, target)) {
+        return parseInt(i);
+      }
+    }
+
+    this.types.push(type);
+    return this.types.length - 1;
+  }
+
+  // index to type
+  itt(i) {
+    return this.types[i];
+  }
+
+  binaryenType(id) {
+    const type = this.itt(id);
+    const primitives = {
       void: b.none,
       i32: b.i32,
       i64: b.i64,
@@ -102,11 +122,13 @@ export class Emitter {
       bool: b.i32,
     };
 
-    if (primatives[name] !== undefined) {
-      return primatives[name];
+    if (type.type === "primitive" && primitives[type.id] !== undefined) {
+      return primitives[type.id];
     } else {
       throw new Error(
-        "only primatives for now but type '" + name + "' provided"
+        "only primitive for now but type '" +
+          JSON.stringify(type) +
+          "' provided"
       );
     }
   }
@@ -310,7 +332,9 @@ export class Emitter {
       case "IF":
         const cond = this.traverse(node.condition);
         const thenBlock = this.traverse(node.thenBlock);
-        const elseBlock = node.elseBlock ? this.traverse(node.elseBlock) : undefined;
+        const elseBlock = node.elseBlock
+          ? this.traverse(node.elseBlock)
+          : undefined;
         return this.module.if(cond, thenBlock, elseBlock);
 
       case "WHILE":

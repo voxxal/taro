@@ -1,4 +1,16 @@
+import deepEqual from "deep-equal";
+
 const numberTypes = ["i32", "i64", "u32", "u64", "f32", "f64"];
+const primitives = [...numberTypes, "string", "bool", "void"];
+
+/*
+type system
+{ type: "primitive", id: "i32" }
+{ type: "struct", name: "File" }
+{ type: "array", inner: { type: "primitive", id: "i32" }, length: 1 }
+{ type: "pointer", inner: { type: "primitive", id: "i32" } }
+{ type: "unknown", subspec: "number" | other }
+*/
 
 const typeFits = (to, from) => {
   if (to === "any" || from === "any") return true;
@@ -73,10 +85,34 @@ export class Typechecker {
     this.tree = ast;
     this.env = new Env();
     this.unknownCount = 0;
+    this.types = [];
   }
 
   check() {
     return this.traverse(this.tree);
+  }
+
+  // type to index
+  tti(type) {
+    for (const i in this.types) {
+      const target = this.types[i];
+      if (deepEqual(type, target)) {
+        return parseInt(i);
+      }
+    }
+
+    this.types.push(type);
+    return this.types.length - 1;
+  }
+
+  // index to type
+  itt(i) {
+    return this.types[i];
+  }
+
+  newUnknown(subspec) {
+    this.types.push({ type: "unknown", subspec });
+    return this.types.length - 1;
   }
 
   typeLiteral(literal) {
@@ -88,13 +124,13 @@ export class Typechecker {
     let valType = null;
     switch (typeof literal) {
       case "number":
-        valType = { id: "number_" + this.unknownCount++ };
+        valType = this.newUnknown("number");
         break;
       case "string":
-        valType = "string";
+        valType = this.tti({ type: "primitive", id: "string" });
         break;
       case "boolean":
-        valType = "bool";
+        valType = this.tti({ type: "primitive", id: "bool" });
         break;
       default:
         throw "okay.";
@@ -107,64 +143,77 @@ export class Typechecker {
     };
   }
 
-  resolveType(node) {
-    // If the valType is non concrete, but we have figured out the actual type,
-    // fill in the type
-    if (node.valType?.id && node.valType?.actual) {
-      node.valType = node.valType.actual;
+  strToType(str) {
+    if (primitives.includes(str))
+      return this.tti({ type: "primitive", id: str });
+    switch (str) {
+      case "string":
+        return this.tti({ type: "primitive", id: "string" });
+      case "bool":
+        return this.tti({ type: "primitive", id: "bool" });
+      default:
+        throw new Error("sob, the string was " + JSON.stringify(str));
     }
-
-    return node.valType;
   }
 
-  isNonConcreteType(node) {
-    this.resolveType(node);
-    return !!node.valType?.id;
+  isUnknownType(type) {
+    return this.itt(type).type === "unknown";
   }
 
-  isNonConcreteNumberType(node) {
-    this.resolveType(node);
-    return !!node.valType?.id?.startsWith("number_");
+  isUnknownNumberType(type) {
+    return this.isUnknownType(type) && this.itt(type)?.subspec === "number";
   }
 
-  isNumberType(node) {
+  isNumberType(type) {
     return (
-      this.isNonConcreteNumberType(node) || numberTypes.includes(node.valType)
+      this.isUnknownNumberType(node) || numberTypes.includes(this.itt(type)?.id)
     );
   }
 
-  coerceNonConcreteType(from, to) {
-    if (this.isNonConcreteNumberType(from) || this.isNonConcreteNumberType(to))
-      return this.coerceNumberType(from, to);
-    if (!this.isNonConcreteType(from)) return;
-    this.resolveType(to);
-    if (!this.isNonConcreteType(to)) {
-      from.valType.actual = to.valType;
-    }
+  // 0 - uk
+  // 1 - uk w/ subspec
+  // 2 - k
+  typeSpecificity(type) {
+    if (!this.isUnknownType(type)) return 2;
+    if (this.itt(type)?.subspec) return 1;
+    return 0;
+  }
+
+  maxSpecific(t1, t2) {
+    let t1s = this.typeSpecificity(t1);
+    let t2s = this.typeSpecificity(t2);
+
+    if (t1s > t2s) return t1;
+    else if (t1s < t2s) return t2;
+    else return t1;
+  }
+
+  coerceUnknownType(node1, node2) {
+    const t1 = node1.valType;
+    const t2 = node2.valType;
+    // don't coerce if both types are already known.
+    if (!(this.isUnknownType(t1) || this.isUnknownType(t2))) return;
+    const mostSpecific = this.maxSpecific(t1, t2);
+    node1.valType = mostSpecific;
+    node2.valType = mostSpecific;
   }
 
   coerceNumberType(from, to) {
-    if (!this.isNonConcreteNumberType(from))
+    if (!this.isUnknownNumberType(from))
       throw "coerce number type called on a non non concrete number";
     if (!this.isNumberType(to))
       throw "target type of coerceNumberType was not a number type";
-    if (this.isNonConcreteNumberType(to)) {
+    if (this.isUnknownNumberType(to)) {
       // if to is an infered type, set it to the infered type
       from.valType.actual = to.valType;
-      this.resolveType(from);
     } else if (numberTypes.includes(to.valType)) {
       // else if to is already concrete then you need to set
       from.valType.actual = to.valType;
-      this.resolveType(from);
     }
   }
 
   typeBinOp(op, left, right) {
-    if (this.isNonConcreteType(right)) {
-      this.coerceNonConcreteType(right, left);
-    } else if (this.isNonConcreteType(left)) {
-      this.coerceNonConcreteType(left, right);
-    }
+    this.coerceUnknownType(left, right);
 
     if (left.valType != right.valType)
       throw `mismatched types on bin_op ${op}. left: ${JSON.stringify(
@@ -188,7 +237,7 @@ export class Typechecker {
           left,
           right,
           op,
-          valType: "bool",
+          valType: this.strToType("bool"),
         };
       // x -> x -> x
       case "PLUS":
@@ -207,10 +256,10 @@ export class Typechecker {
   }
 
   checkStructLiteral(node) {
-    const type = this.env.getType(node.valType);
+    const type = this.env.getType(node.valType?.name);
     for (const [key, fieldType] of Object.entries(type)) {
       if (!node.value[key]) throw "missing field " + key + " on struct literal";
-      if (this.isNonConcreteNumberType(node.value[key]))
+      if (this.isUnknownNumberType(node.value[key]))
         this.coerceNonConcreteType(node.value[key], { valType: fieldType });
       if (node.value[key].valType != fieldType)
         throw "mismatched type on struct literal";
@@ -230,16 +279,24 @@ export class Typechecker {
           value: progValue,
         };
       case "EXTERN":
+        const imports = [];
         for (const impor of node.imports) {
-          this.traverse(impor, node.moduleName);
+          imports.push(this.traverse(impor, node.moduleName));
         }
-        return node;
-      case "EXTERN_FUNCTION":
-        this.env.assignFn(`${options[0]}:${node.name}`, node.valType);
-        return node;
-      case "EXTERN_VAR":
-        this.env.assign(`${options[0]}:${node.name}`, node.valType, false);
-        return node;
+        return { ...node, imports };
+      case "EXTERN_FUNCTION": {
+        const valType = {
+          args: node.valType.args.map((arg) => this.strToType(arg)),
+          ret: this.strToType(node.valType.ret),
+        };
+        this.env.assignFn(`${options[0]}:${node.name}`, valType);
+        return { ...node, valType };
+      }
+      case "EXTERN_VAR": {
+        const valType = this.strToType(node.valType);
+        this.env.assign(`${options[0]}:${node.name}`, valType, false);
+        return { ...node, valType };
+      }
       case "FUNCTION": {
         this.scopeI = 0;
         this.functionLocals = [];
@@ -257,12 +314,13 @@ export class Typechecker {
         this.functionArgs = fnArgs;
 
         const body = this.traverse(node.body, fnArgs);
-        if (this.isNonConcreteType(body))
-          this.coerceNonConcreteType(body, { valType: node.returnType.source });
-        if (this.resolveType(body) !== node.returnType.source) {
+        const expectedRetType = this.strToType(node.returnType.source);
+        this.coerceUnknownType(body, { valType: expectedRetType });
+
+        if (body.valType != expectedRetType) {
           throw `Expected function to return ${JSON.stringify(
-            node.returnType.source
-          )} but it returned ${JSON.stringify(body.valType)}`;
+            this.itt(expectedRetType)
+          )} but it returned ${JSON.stringify(this.itt(body.valType))}`;
         }
 
         valType.ret = body.valType;
@@ -281,7 +339,7 @@ export class Typechecker {
         return {
           type: "FUNCTION_ARG",
           name: node.name.source,
-          valType: node.argType.source,
+          valType: this.strToType(node.argType.source),
         };
       case "RETURN":
         return {
@@ -295,9 +353,10 @@ export class Typechecker {
       case "BLOCK":
         this.scopeI += 1;
         const value = [];
-        let valType = "void";
+        let valType = this.strToType("void");
         try {
           this.env = new Env(this.env);
+          // load args into block
           if (Array.isArray(options[0])) {
             for (const arg of options[0]) {
               this.env.assign(arg.name, arg.valType, false);
@@ -306,7 +365,7 @@ export class Typechecker {
           for (const statement of node.value) {
             const res = this.traverse(statement);
             if (res.type === "RETURN") {
-              valType = this.resolveType(res.value);
+              valType = res.value.valType;
             }
             value.push(res);
           }
@@ -320,10 +379,17 @@ export class Typechecker {
         };
       case "ASSIGNMENT": {
         const value = this.traverse(node.value);
-        const valType = node.valType ??
-          this.resolveType(value) ?? { id: "unknown_" + this.unknownCount++ };
+        let valType = null;
+        if (node.valType) {
+          valType = this.strToType(node.valType);
+        } else if (value.valType) {
+          valType = value.valType;
+        } else {
+          valType = this.newUnknown();
+        }
+
         // TODO create a seperate function when a type is infered so we can typecheck the struct
-        if (this.isNonConcreteType(value) && !this.isNonConcreteType(valType)) {
+        if (this.isUnknownType(value.valType) && !this.isUnknownType(valType)) {
           value.valType = valType;
         }
 
@@ -352,6 +418,7 @@ export class Typechecker {
         };
       }
       case "STRUCT":
+        // TODO fix, types from the parser are in string fmt
         this.env.assignType(node.name, node.value);
         return {
           ...node,
@@ -406,9 +473,9 @@ export class Typechecker {
         for (const i in actualArgs) {
           const actual = actualArgs[i];
           const expected = args[i];
-          if (this.isNonConcreteType(actual))
-            this.coerceNonConcreteType(actual, { valType: expected });
-          if (this.resolveType(actual) !== expected) {
+          this.coerceUnknownType(actual, { valType: expected });
+
+          if (actual.valType !== expected) {
             throw `mismatched types: expected ${expected}, got type ${actual.valType}`;
           }
         }
@@ -423,12 +490,8 @@ export class Typechecker {
         const thenBlock = this.traverse(node.thenBlock);
         const elseBlock = node.elseBlock ? this.traverse(node.elseBlock) : null;
         if (elseBlock) {
-          if (this.isNonConcreteType(elseBlock)) {
-            this.coerceNonConcreteType(elseBlock, thenBlock);
-          } else if (this.isNonConcreteType(thenBlock)) {
-            this.coerceNonConcreteType(thenBlock, elseBlock);
-          }
-          if (this.resolveType(thenBlock) !== this.resolveType(elseBlock)) {
+          this.coerceUnknownType(elseBlock, thenBlock);
+          if (thenBlock.valType !== elseBlock.valType) {
             throw `mismatched types in if statement. then: ${JSON.stringify(
               thenBlock.valType
             )}, else: ${JSON.stringify(elseBlock.valType)}`;
@@ -436,7 +499,7 @@ export class Typechecker {
         }
 
         const condition = this.traverse(node.condition);
-        if (condition.valType !== "bool")
+        if (this.itt(condition.valType).id !== "bool")
           throw new Error("Condition is not boolean");
 
         return {
@@ -452,6 +515,7 @@ export class Typechecker {
       case "LITERAL":
         return this.typeLiteral(node.value);
       case "STRUCT_LITERAL": {
+        // TODO from here on out i neglected to fix the type changes
         const valType = this.resolveType(node) ?? {
           id: "unknown_" + this.unknownCount++,
         };
@@ -474,7 +538,7 @@ export class Typechecker {
         return this.typeBinOp(node.op.type, left, right);
       case "WHILE": {
         const condition = this.traverse(node.condition);
-        if (condition.valType !== "bool")
+        if (this.itt(condition.valType).id !== "bool")
           throw new Error("Condition is not boolean");
         const block = this.traverse(node.block);
         return {

@@ -42,8 +42,9 @@ const tokens = new Lexer(source).scan();
 console.log(tokens);
 const ast = new Parser(tokens).parse();
 console.dir(ast, { depth: null });
-const typedAst = new Typechecker(ast).check();
+const typechecker = new Typechecker(ast)
+const typedAst = typechecker.check();
 console.dir(typedAst, { depth: null });
 // console.dir(check.env, { depth: null })
-const emitter = new Emitter(typedAst);
+const emitter = new Emitter(typedAst, typechecker.types);
 writeFileSync("main.wasm", emitter.emit());
