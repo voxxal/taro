@@ -258,6 +258,8 @@ export class Emitter {
 
           const strlen = new TextEncoder().encode(node.value).length;
           // bytes for string, 8 bytes for iov
+          // .... .... ..?? 
+          //  pos  len  str
           let str = this.alloc(strlen + 4 + 4);
           const iov = new Uint32Array(2);
           iov[0] = str + 8;
@@ -307,7 +309,7 @@ export class Emitter {
         const left = this.traverse(node.left);
         const right = this.traverse(node.right);
         switch (node.op) {
-          // TODO do for any type.
+          // TODO do for any type, also _s and _u prefixes
           case "EQUALITY":
             return this.module.i32.eq(left, right);
           case "INEQUALITY":
@@ -316,6 +318,8 @@ export class Emitter {
             return this.module.i32.add(left, right);
           case "MINUS":
             return this.module.i32.add(left, right);
+          case "SLASH":
+            return this.module.i32.div_s(left, right);
           case "MODULO":
             return this.module.i32.rem_s(left, right);
 

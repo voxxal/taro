@@ -14,10 +14,23 @@ fn File:write(fd: i32, str: string) void {
   wasi_unstable:fd_write(fd, str, 1, 0);
 }
 
-fn greet(name: string) void {
-  File:write(1, "Hello, ");
-  File:write(1, name);
-  File:write(1, "\\n");
+fn countDigits(num: i32) i32 {
+  let count: i32 = 0;
+  let numCopy: i32 = num;
+  while (numCopy > 0) {
+    numCopy = numCopy / 10;
+    count = count + 1;
+  }
+  
+  return count;
+}
+
+fn printNum(num: i32) void {
+  let numCopy: i32 = num;
+  let digits: i32 = countDigits(num);
+  let literal: string = "TESTDATA";
+  while (digits > 0) {
+  }
 }
 
 fn main() void {
@@ -25,13 +38,13 @@ fn main() void {
   let i: i32 = 1;
   while i < 101 {
     if i % 15 == 0 {
-      File:write(1, "FizzBuzz\\n");
+      File:write(stdout, "FizzBuzz\\n");
     } else if i % 3 == 0 {
-      File:write(1, "Fizz\\n");
+      File:write(stdout, "Fizz\\n");
     } else if i % 5 == 0 {
-      File:write(1, "Buzz\\n");
+      File:write(stdout, "Buzz\\n");
     } else {
-      File:write(1, ".\\n");
+      File:write(stdout, ".\\n");
     }
     i = i + 1;
   }
